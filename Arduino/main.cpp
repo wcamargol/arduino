@@ -134,6 +134,7 @@ void executarComando() {
     feedbackOperacao = "D";
     Serial.println(feedbackOperacao);
   }
+  delay(100);
   /**
     * reinicializa as variaveis e le a operacao (comando)
     */    
