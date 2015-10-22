@@ -1,9 +1,6 @@
 /**
 * Programa que le e interpreta os comandos enviados pelo servidor e tambem monitora os estados
 * de sensores e dispositivos
-*
-*Codigo adaptado de http://www.seeedstudio.com/wiki/Grove_-_Gas_Sensor%28MQ2%29
-*
 */
 
 /**
@@ -11,11 +8,8 @@
 */
 int  pino;                /** variavel que recebera o numero do pino indo ate 999*/ 
 char comando;             /** variavel que recebera o comando L para liga ou D para desliga*/
-float tensaoSensor;         /** variavel que recebe a leitura do sensor convertido para valor de tensao*/
 float R0;                 /** variavel que define RO para calculo da relacao RS/R0*/
-float RS_gas;             /** variavel que recebe o valor em tempo de execucao da leitura do sensor */
-float rs_R0;              /** varivale que recebe o valor da leitura do sensor RS_gas divido por RO */
-float valorSensor;
+float relacaoGases;       /** varivale que recebe o valor da leitura do sensor RS_gas divido por RO */
 float ppmGLP;
 
 #define pinoSensorGas A0
@@ -31,18 +25,26 @@ float ppmGLP;
 #define desligado  1
 
 /**
+  *Metodo que retorna o valor da resistencia de sensoreamento
+  *dado o valor lido na entrada analgica
+  */
+
+float resistorSensorGas(int dadoAnalogico){
+  return (float)1023/dadoAnalogico-1;
+}
+
+/**
  Metodo para calibrar o sensor e definir R0 e RS
 */
 void calibrarSensorGas(){
-  int i;
-  valorSensor = 0.0;
-  for(i=0; i < 50; i++){
-    valorSensor = valorSensor + analogRead(pinoSensorGas);
+  int i, dadoAnalogico = 0;
+  R0 = 0.0;
+  for(i=0; i < 40; i++){
+    dadoAnalogico += analogRead(pinoSensorGas);
     delay(500);
   }
-  valorSensor = valorSensor/50;
-  tensaoSensor = (float)valorSensor/1023*4.37;
-  R0 = ((4.37-tensaoSensor)/tensaoSensor)/9.4;
+  dadoAnalogico = dadoAnalogico/40;
+  R0 = resistorSensorGas(dadoAnalogico)/9.4;
 }
 
 /**
@@ -161,18 +163,12 @@ void setup() {
 }
   
 void loop(){
+   
+  relacaoGases = resistorSensorGas(analogRead(pinoSensorGas))/R0; 
   
-  valorSensor = analogRead(pinoSensorGas);
-  
-  tensaoSensor=(float)valorSensor/1023*4.4;
-  RS_gas = (4.4-tensaoSensor)/tensaoSensor;
-  
-  rs_R0 = RS_gas/R0; 
-  
-  ppmGLP = pow (10, (1.26 - log(rs_R0))/0.47);
+  ppmGLP = pow (10, (1.26 - log(relacaoGases))/0.47);
   Serial.print(ppmGLP);
   Serial.println(" ppm");
-  
   /**Se receber algo pela serial*/
   if (Serial.available() > 0){    
     lerComando();
