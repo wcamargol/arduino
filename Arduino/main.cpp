@@ -2,19 +2,28 @@
 * Programa que le e interpreta os comandos enviados pelo servidor e tambem monitora os estados
 * de sensores e dispositivos
 *
-*
-*
+*Codigo adaptado de http://www.seeedstudio.com/wiki/Grove_-_Gas_Sensor%28MQ2%29
 *
 */
 
 /**
 * Varivaveis globais
 */
-int  pino;              /**variavel que recebera o numero do pino ate 999*/ 
-char comando;           /** variavel que recebera o comando L para liga ou D para desliga*/
-String dispositivo;     /**variavel que recebera o dispositivo (lampada, motor, etc) que sera desligado ou ligado*/
-#define liga 'L'         /**define o comando liga como L*/
+int  pino;                /** variavel que recebera o numero do pino indo ate 999*/ 
+char comando;             /** variavel que recebera o comando L para liga ou D para desliga*/
+float tensaoSensor;         /** variavel que recebe a leitura do sensor convertido para valor de tensao*/
+float R0;                 /** variavel que define RO para calculo da relacao RS/R0*/
+float RS_gas;             /** variavel que recebe o valor em tempo de execucao da leitura do sensor */
+float rs_R0;              /** varivale que recebe o valor da leitura do sensor RS_gas divido por RO */
+float valorSensor;
+float ppmGLP;
+
+#define pinoSensorGas A0
+
+#define liga 'L'          /**define o comando liga como L*/
 #define desliga  'D'      /**define o comando desliga como D*/
+#define pulsar 'P'        /**define o comando pulsar com P*/
+
 /**
 * No caso de placas de reles, o arduino define o estado HIGH (1) para desligado e o estado LOW (0) para ligado
 */
@@ -22,10 +31,24 @@ String dispositivo;     /**variavel que recebera o dispositivo (lampada, motor, 
 #define desligado  1
 
 /**
+ Metodo para calibrar o sensor e definir R0 e RS
+*/
+void calibrarSensorGas(){
+  int i;
+  valorSensor = 0.0;
+  for(i=0; i < 50; i++){
+    valorSensor = valorSensor + analogRead(pinoSensorGas);
+    delay(500);
+  }
+  valorSensor = valorSensor/50;
+  tensaoSensor = (float)valorSensor/1023*4.37;
+  R0 = ((4.37-tensaoSensor)/tensaoSensor)/9.4;
+}
+
+/**
 * Procedimento para (re)inicializar as variaveis globais
 */
 void limparComando() {
-  dispositivo = "";     /**nenhum dispositivo ou equipamento*/
   pino = -1;            /**nenhum pino*/  
   comando = NULL;       /**nenhum comando a ser executado*/
 }
@@ -40,90 +63,31 @@ void lerComando(){
   * variavel local que recebera temporarimente
   * a string (comando) da porta serial
   */
-  String cmd;
-  /** 
-  * variavel local que recebera cada caracter que chega 
-  * pela porta serial sera concatenado a string comando
-  */  
-  char c;            
+  String str;
   
   /** Enquanto houver caracteres na porta serial*/
-  while(Serial.available() > 0) {
+  while (Serial.available()){
+    /**delay necessario para chegada do byte pela porta*/
+    delay(1);
     /** le  o caracter da porta serial*/
-    c = Serial.read();
-    /** Nao le o caractere de quebra de linha*/
-    if (c != '\n'){
-      /** 
-      * Concatena os caracteres na string comando
+    char c = Serial.read();
+    /** 
+      * Concatena os caracteres na variavel str
       * formando a string enviada pelo servidor
       */
-      cmd.concat(c);
-    }
-    /** Aguarda a porta serial ler próximo caractere*/
-    delay(10);
-  }
+    str += c;
+    /**muda as letras para maiusculo*/
+    str.toUpperCase();
+    /**retira os espacos em branco*/
+    str.trim();
+  }  
   
   /** 
   * Pega o dispositivo que sera usado para o feedback da operacao
   * em seguida pega o comando e o numero do pino a ser operado
   */
-  dispositivo = cmd.substring(0,4);
-  comando = cmd.charAt(4);
-  pino = cmd.substring(5).toInt();
-}
-
-/**
-* Funcao que verfica se a operacao (comando) deve ser realizada
-* e retorna verdadeiro ou falso. Esta funcao determina o estado 
-* do pino e retorna verdadeiro (true) para a execucao do comando
-* e falso(false) para a nao execucao do comando.
-*/
-boolean devoExCmd() {
-  /**
-  * Le o estado do pino
-  */
-  int estadoPino = digitalRead(pino);
-  /**
-  * se o estado do pino esta ligado
-  */
-  if (estadoPino == ligado) {
-    /**
-    * e se o comando for para ligar
-    */
-    if (comando == liga) {
-      /**
-      * retorne falso e nao executa o comando
-      */
-      Serial.println(dispositivo + " comando nao executado");      
-      return false;      
-      /**
-      * senao retorne verdadeiro se o comando
-      * for para desligar
-      */
-    } else if (comando == desliga) {
-      return true;
-    }
-    /**
-    * senao, se o estado do pino esta desligado
-    */
-  } else if (estadoPino == desligado) {
-    /**
-    * e se o comando for para desligar
-    */
-    if (comando == desliga) {
-      /**
-      * retorne falso e nao executa o comando
-      */  
-      Serial.println(dispositivo + " comando nao executado"); 
-      return false;      
-      /**
-      * senao retorne verdadeiro se o comando
-      * for para ligar
-      */
-    } else if (comando == liga) {       
-      return true;
-    }
-  }
+  comando = str.charAt(0);
+  pino = str.substring(1).toInt();
 }
 
 /**
@@ -139,7 +103,10 @@ void executarComando() {
   * variavel local que armazena o feedback dado ao usuario 
   * inicializada com uma mensagem de comando no executado
   */
-  String feedback;
+  String feedbackOperacao;
+  
+  pinMode(pino,OUTPUT);
+  
   /** 
   * Executa o comando conforme solicitado liga ou desliga
   */  
@@ -147,6 +114,10 @@ void executarComando() {
     digitalWrite(pino, LOW);    
   } else if (comando == desliga) {
     digitalWrite(pino, HIGH);
+  } else if (comando == pulsar){
+    digitalWrite(pino, HIGH);
+    delay(100);
+    digitalWrite(pino,LOW);
   }
   /**
   * Le o estado do pino apos a execucao do comando
@@ -157,51 +128,54 @@ void executarComando() {
   * que foi solicitada e coloca o feedback na porta serial
   */
   if (estado == ligado && comando == liga) {
-    feedback = dispositivo + " - Ligado";
-    Serial.println(feedback);   
+    feedbackOperacao = "L";
+    Serial.println(feedbackOperacao);   
   }else if (estado == desligado && comando == desliga){
-    feedback = dispositivo + " - Desligado";
-    Serial.println(feedback);
+    feedbackOperacao = "D";
+    Serial.println(feedbackOperacao);
   }
+  /**
+    * reinicializa as variaveis e le a operacao (comando)
+    */    
+    limparComando();
 }
 
 
 
-void setup() {
+void setup() {  
   /**
-  Define o pino 8 como saida e inicializa a placa com o rele desligado
-  HIGH : rele desligado
-  LOW : rele ligado
+  Faz a calibracao do sensor de gas
   */
-  pinMode(2, OUTPUT);
-  digitalWrite(2, HIGH );
-  pinMode(3, OUTPUT);
-  digitalWrite(3, HIGH );
+  calibrarSensorGas();
   
   /**
-  dDefine o pino 7 como entrada que recebera o sinal do interruptor e
-  faz a leitura do sinal, passando para o arduino o estado do
-  interruptor
+  Inicializa as variaveis que atuam sobre as saidas do Arduino
   */
-  /**pinMode(7, INPUT);
-  /**interruptor = digitalRead(7);
-  /*
+  limparComando();
+  
+  /**
   Define a velocidade da comunicacao serial em 9600bps
   */
-  Serial.begin(9600);
-  limparComando();  
+  Serial.begin(9600);   
 }
   
-void loop() {
+void loop(){
+  
+  valorSensor = analogRead(pinoSensorGas);
+  
+  tensaoSensor=(float)valorSensor/1023*4.4;
+  RS_gas = (4.4-tensaoSensor)/tensaoSensor;
+  
+  rs_R0 = RS_gas/R0; 
+  
+  ppmGLP = pow (10, (1.26 - log(rs_R0))/0.47);
+  Serial.print(ppmGLP);
+  Serial.println(" ppm");
+  
   /**Se receber algo pela serial*/
-  if (Serial.available() > 0){
-    /**
-    * reinicializa as variaveis e le a operacao (comando)
-    */
-    limparComando();    
-    lerComando(); 
-    if (devoExCmd()){       
-      executarComando();
-    }
+  if (Serial.available() > 0){    
+    lerComando();
+    executarComando();
   }
+  delay(500);  
 }
