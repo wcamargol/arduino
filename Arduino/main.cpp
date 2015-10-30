@@ -6,17 +6,18 @@
 /**
 * Varivaveis globais
 */
-int  pino;                /** variavel que recebera o numero do pino indo ate 999*/ 
-char comando;             /** variavel que recebera o comando L para liga ou D para desliga*/
-float R0;                 /** variavel que define RO para calculo da relacao RS/R0*/
-float relacaoGases;       /** varivale que recebe o valor da leitura do sensor RS_gas divido por RO */
+int  pino;
+char comando;                     /** variavel que recebera o comando L para liga ou D para desliga*/
+float R0;                         /** variavel que define RO para calculo da relacao RS/R0*/
+float relacaoGases;               /** varivale que recebe o valor da leitura do sensor RS_gas divido por RO */
 float ppmGLP;
 
-#define pinoSensorGas A0
+#define pinoA0 A0                  /**define o pino da placa que recebera os valores da concentracao de gas*/
+#define qtdLeituraCalibracao 1   /**define a quantidade de leituras feitas durannte a calibracao*/
 
-#define liga 'L'          /**define o comando liga como L*/
-#define desliga  'D'      /**define o comando desliga como D*/
-#define pulsar 'P'        /**define o comando pulsar com P*/
+#define liga 'L'                  /**define o comando liga como L*/
+#define desliga  'D'              /**define o comando desliga como D*/
+#define pulsar 'P'                /**define o comando pulsar com P*/
 
 /**
 * No caso de placas de reles, o arduino define o estado HIGH (1) para desligado e o estado LOW (0) para ligado
@@ -25,30 +26,42 @@ float ppmGLP;
 #define desligado  1
 
 /**
-  *Metodo que retorna o valor da resistencia de sensoreamento
-  *dado o valor lido na entrada analgica
-  */
+* Metodo que retorna o valor da resistencia de sensoreamento
+* dado o valor lido na entrada analgica
+*/
 
-float resistorSensorGas(int dadoAnalogico){
+float resistorSensorGas(int dadoAnalogico){ 
   return (float)1023/dadoAnalogico-1;
 }
 
 /**
- Metodo para calibrar o sensor e definir R0 e RS
+* Metodo para calibrar o sensor e definir R0 e RS
 */
 void calibrarSensorGas(){
   int i, dadoAnalogico = 0;
   R0 = 0.0;
-  for(i=0; i < 40; i++){
-    dadoAnalogico += analogRead(pinoSensorGas);
+  for(i=0; i < qtdLeituraCalibracao; i++){
+    dadoAnalogico += analogRead(pinoA0);
     delay(500);
   }
-  dadoAnalogico = dadoAnalogico/40;
-  R0 = resistorSensorGas(dadoAnalogico)/9.4;
+  dadoAnalogico = dadoAnalogico/qtdLeituraCalibracao;
+  R0 = resistorSensorGas(dadoAnalogico)/9.8;
+}
+
+float concentracaoGLP(){
+  /**
+  * calcula a relacao de entre a resistencia do sensor Rs e Ro
+  */
+  relacaoGases = resistorSensorGas(analogRead(pino))/R0; 
+  
+  /**
+  * Calcula a concentracao de gas GLP no ambiente
+  */
+  return pow(10,(1.27-log10(relacaoGases))/0.47);
 }
 
 /**
-* Procedimento para (re)inicializar as variaveis globais
+* Procedimento para (re)inicializar as variaveis globais de comando
 */
 void limparComando() {
   pino = -1;            /**nenhum pino*/  
@@ -60,7 +73,7 @@ void limparComando() {
  * verificar o dispositivo, o comando e o pino e 
  * atribuir os valores as variaveis corretas
  */
-void lerComando(){
+void lerString(){
   /** 
   * variavel local que recebera temporarimente
   * a string (comando) da porta serial
@@ -82,14 +95,20 @@ void lerComando(){
     str.toUpperCase();
     /**retira os espacos em branco*/
     str.trim();
-  }  
+  }
   
-  /** 
-  * Pega o dispositivo que sera usado para o feedback da operacao
-  * em seguida pega o comando e o numero do pino a ser operado
-  */
-  comando = str.charAt(0);
-  pino = str.substring(1).toInt();
+  if (str.charAt(0) == '?'){
+    pino = str.substring(1).toInt();
+    Serial.println(concentracaoGLP());
+  }else{
+    /** 
+    * Pega o dispositivo que sera usado na operacao
+    * em seguida pega o comando e o numero do pino a ser operado
+    */
+    comando = str.charAt(0);
+    pino = str.substring(1).toInt();    
+    executarComando();
+  }
 }
 
 /**
@@ -110,16 +129,16 @@ void executarComando() {
   pinMode(pino,OUTPUT);
   
   /** 
-  * Executa o comando conforme solicitado liga ou desliga
+  * Executa o comando conforme solicitado liga, desliga ou pulso
   */  
   if (comando == liga) {  
     digitalWrite(pino, LOW);    
   } else if (comando == desliga) {
     digitalWrite(pino, HIGH);
   } else if (comando == pulsar){
-    digitalWrite(pino, HIGH);
+    digitalWrite(pino, LOW);
     delay(100);
-    digitalWrite(pino,LOW);
+    digitalWrite(pino,HIGH);
   }
   /**
   * Le o estado do pino apos a execucao do comando
@@ -138,9 +157,9 @@ void executarComando() {
   }
   delay(100);
   /**
-    * reinicializa as variaveis e le a operacao (comando)
-    */    
-    limparComando();
+  * reinicializa as variaveis e le a operacao (comando)
+  */    
+  limparComando();
 }
 
 
@@ -163,16 +182,12 @@ void setup() {
 }
   
 void loop(){
-   
-  relacaoGases = resistorSensorGas(analogRead(pinoSensorGas))/R0; 
-  
-  ppmGLP = pow (10, (1.26 - log(relacaoGases))/0.47);
-  Serial.print(ppmGLP);
-  Serial.println(" ppm");
   /**Se receber algo pela serial*/
-  if (Serial.available() > 0){    
-    lerComando();
-    executarComando();
-  }
-  delay(500);  
+  while (Serial.available() > 0){ 
+    /*
+    * le e executa o comando
+    */   
+    lerString();        
+ }
 }
+
